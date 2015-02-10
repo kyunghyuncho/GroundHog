@@ -45,8 +45,12 @@ class RandomSamplePrinter(object):
                 if len(x_words) == 0:
                     continue
 
-                print "Input: {}".format(" ".join(x_words))
-                print "Target: {}".format(" ".join(y_words))
+                if 'utf8' in self.state and self.state['utf8']:
+                    print "Input: {}".format(" ".join(x_words).encode('utf8'))
+                    print "Target: {}".format(" ".join(y_words).encode('utf8'))
+                else:
+                    print "Input: {}".format(" ".join(x_words))
+                    print "Target: {}".format(" ".join(y_words))
                 self.model.get_samples(self.state['seqlen'] + 1, self.state['n_samples'], x[:len(x_words)])
                 sample_idx += 1
 

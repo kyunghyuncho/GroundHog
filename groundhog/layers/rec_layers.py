@@ -1552,6 +1552,8 @@ class DoubleRecurrentLayer(Layer):
                  profile = 0,
                  gater_activation = TT.nnet.sigmoid,
                  reseter_activation = TT.nnet.sigmoid,
+                 gating=True, 
+                 reseting=True,
                  name=None):
         """
         :type rng: numpy random generator
@@ -1652,7 +1654,7 @@ class DoubleRecurrentLayer(Layer):
 
         assert rng is not None, "random number generator should not be empty!"
 
-        super(RecurrentLayer, self).__init__(self.n_hids,
+        super(DoubleRecurrentLayer, self).__init__(self.n_hids,
                 self.n_hids, rng, name)
 
         self.trng = RandomStreams(self.rng.randint(int(1e6)))
@@ -1709,7 +1711,7 @@ class DoubleRecurrentLayer(Layer):
                 rng=self.rng),
                 name="V2_%s"%self.name)
         self.params.append(self.V2_hh)
-        self.G2s_hh = theano.shared(
+        self.G2_hh = theano.shared(
                 self.init_fn(self.n_hids,
                 self.n_hids,
                 self.sparsity,
@@ -1727,8 +1729,9 @@ class DoubleRecurrentLayer(Layer):
         self.params.append(self.R2_hh)
 
         self.S_h = theano.shared(
-                self.init_fn(self.n_hids, 1),
-                rng=self.rng), name='S_%s'%self.name)
+                                 eval('numpy.'+theano.config.floatX)(0.01 * numpy.random.rand(self.n_hids)),
+                                 #sample_weights_classic(self.n_hids, 1, -1, 0.01, rng=self.rng), 
+                                 name='S_%s'%self.name)
         self.params.append(self.S_h)
 
         self.W_att = theano.shared(
@@ -1750,8 +1753,8 @@ class DoubleRecurrentLayer(Layer):
         self.params.append(self.U_att)
 
         self.V_att = theano.shared(
-                self.init_fn(self.n_hids, 1),
-                rng=self.rng), name='V_att_%s'%self.name)
+                                   eval('numpy.'+theano.config.floatX)(0.01 * numpy.random.rand(self.n_hids)), 
+                                   name='V_att_%s'%self.name)
         self.params.append(self.V_att)
 
         self.params_grad_scale = [self.grad_scale for x in self.params]
@@ -1922,7 +1925,7 @@ class DoubleRecurrentLayer(Layer):
             V_att = self.V_att
             S_h = self.S_h
 
-        def _scan1(state_below, mask=None, state_before, gater_below, reseter_below, 
+        def _scan1(state_below, mask, state_before, gater_below, reseter_below, 
                    use_noise=True, no_noise_bias = False):
             reseter = self.reseter_activation(TT.dot(state_before, R_hh) + reseter_below)
             reseted_state_before = reseter * state_before
@@ -1968,15 +1971,21 @@ class DoubleRecurrentLayer(Layer):
         state_below = rval
         state_below_att = TT.dot(state_below, W_att)
 
-        def _scan2(state_below, mask=None, state_before, beta_before,
+        def _scan2(mask, state_before, beta_before,
                    use_noise=True, no_noise_bias = False):
             # attention 
             state_before_att = TT.dot(state_before, U_att)
-            att = TT.tanh(state_below_att + state_before_att[None,:,:])
+            if state_below_att.ndim == 3:
+                att = TT.tanh(state_below_att + state_before_att[None,:,:])
+            else:
+                att = TT.tanh(state_below_att + state_before_att[None,:])
             att = TT.exp(TT.dot(att, V_att))
             att = att / att.sum(0, keepdims=True)
 
-            real_below = (state_below * att[:,:,None]).sum(axis=0)
+            if state_below.ndim == 3:
+                real_below = (state_below * att[:,:,None]).sum(axis=0)
+            else:
+                real_below = (state_below * att[:,None]).sum(axis=0)
 
             # reset gate
             reseter = self.reseter_activation(TT.dot(state_before, R2_hh) + 
@@ -1984,39 +1993,52 @@ class DoubleRecurrentLayer(Layer):
             reseted_state_before = reseter * state_before
 
             # Feed the input to obtain potential new state.
-            preactiv = TT.dot(reseted_state_before, W2_hh) + TT.dot(real_below, W2_hh)
+            preactiv = TT.dot(reseted_state_before, U2_hh) + TT.dot(real_below, W2_hh)
             h = self.activation(preactiv)
 
             # update gate
             gater = self.gater_activation(TT.dot(state_before, G2_hh) + 
                                           TT.dot(real_below, V2_hh))
-            h = gater * h + (1-gater) * state_before
+            h = gater * h + (floatX(1)-gater) * state_before
+
+            if mask is not None:
+                if h.ndim ==2 and mask.ndim==1:
+                    mask = mask.dimshuffle(0,'x')
+                h = mask * h + (floatX(1)-mask) * state_before
 
             # stopping probability
             s = TT.nnet.sigmoid(TT.dot(h, S_h))
-            beta = beta_before * (1. - s)
+            beta = beta_before * (floatX(1) - s)
 
             return h, beta
 
         if mask:
-            inps = [state_below, mask]
-            fn = lambda x,y,z,b : _scan2(x,y,z,b,use_noise=use_noise, no_noise_bias=no_noise_bias)
+            inps = [mask]
+            fn = lambda y,z,b : _scan2(y,z,b,use_noise=use_noise, no_noise_bias=no_noise_bias)
         else:
-            inps = [state_below]
-            fn = lambda x,y,b: _scan2(x, None, y, b, use_noise=use_noise, no_noise_bias=no_noise_bias)
+            inps = []
+            fn = lambda y,b: _scan2(None, y, b, use_noise=use_noise, no_noise_bias=no_noise_bias)
+
+        if not isinstance(batch_size, int) or batch_size != 1:
+            init_beta = TT.alloc(floatX(1), batch_size)
+        else:
+            init_beta = TT.alloc(floatX(1), 1)
 
         rval, updates2 = theano.scan(fn,
                         sequences = inps,
-                        outputs_info = [init_state, TT.constant(0.)],
+                        outputs_info = [init_state, init_beta],
                         name='layer2_%s'%self.name,
                         profile=self.profile,
-                        truncate_gradient = truncate_gradient,
+                        truncate_gradient=truncate_gradient,
                         n_steps = nsteps)
         new_h = rval[0]
         betas = rval[1]
         updates += updates2
 
-        self.out = new_h * betas[:,None,None]
+        if new_h.ndim == 3:
+            self.out = new_h * betas[:,:,None]
+        else:
+            self.out = new_h * betas[:,None]
         self.rval = rval
         self.updates =updates
 

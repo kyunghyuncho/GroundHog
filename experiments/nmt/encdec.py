@@ -16,6 +16,7 @@ from groundhog.layers import\
         HierarchicalSoftmaxLayer,\
         LSTMLayer, \
         RecurrentLayer,\
+        DoubleRecurrentLayer,\
         RecursiveConvolutionalLayer,\
         UnaryOp,\
         Shift,\

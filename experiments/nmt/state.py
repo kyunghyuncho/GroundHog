@@ -292,3 +292,39 @@ def prototype_phrase_lstm_state():
     state['prefix'] = 'phrase_lstm_'
 
     return state
+
+def prototype_double_state():
+    state = prototype_encdec_state()
+
+    state['target'] = ["/data/lisatmp3/firatorh/nmt/openmt15/bitext.zh-en/binarized_text.zh.shuf.h5"]
+    state['source'] = ["/data/lisatmp3/firatorh/nmt/openmt15/bitext.zh-en/binarized_text.en.shuf.h5"]
+    state['indx_word'] = "/data/lisatmp3/firatorh/nmt/openmt15/bitext.zh-en/ivocab.zh.pkl"
+    state['indx_word_target'] = "/data/lisatmp3/firatorh/nmt/openmt15/bitext.zh-en/ivocab.en.pkl"
+    state['word_indx'] = "/data/lisatmp3/firatorh/nmt/openmt15/bitext.zh-en/vocab.zh.pkl"
+    state['word_indx_trgt'] = "/data/lisatmp3/firatorh/nmt/openmt15/bitext.zh-en/vocab.en.pkl"
+
+    state['utf8'] = True
+
+    state['enc_rec_layer'] = 'DoubleRecurrentLayer'
+    state['dec_rec_layer'] = 'RecurrentLayerWithSearch'
+    state['search'] = True
+    state['last_forward'] = False
+    state['forward'] = True
+    state['backward'] = True
+    state['seqlen'] = 50
+    state['sort_k_batches'] = 20
+    state['prefix'] = 'double_'
+
+    state['null_sym_source'] = 4000
+    state['null_sym_target'] = 30000
+    state['n_sym_source'] = state['null_sym_source'] + 1
+    state['n_sym_target'] = state['null_sym_target'] + 1
+
+    state['seqlen'] = 30
+    state['bs']  = 80
+
+    state['dim'] = 1000
+    state['rank_n_approx'] = 256
+
+    return state
+
