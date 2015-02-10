@@ -296,8 +296,8 @@ def prototype_phrase_lstm_state():
 def prototype_double_state():
     state = prototype_encdec_state()
 
-    state['target'] = ["/data/lisatmp3/firatorh/nmt/openmt15/bitext.zh-en/binarized_text.zh.shuf.h5"]
-    state['source'] = ["/data/lisatmp3/firatorh/nmt/openmt15/bitext.zh-en/binarized_text.en.shuf.h5"]
+    state['target'] = ["/data/lisatmp3/firatorh/nmt/openmt15/bitext.zh-en/binarized_text.en.shuf.h5"]
+    state['source'] = ["/data/lisatmp3/firatorh/nmt/openmt15/bitext.zh-en/binarized_text.zh.shuf.h5"]
     state['indx_word'] = "/data/lisatmp3/firatorh/nmt/openmt15/bitext.zh-en/ivocab.zh.pkl"
     state['indx_word_target'] = "/data/lisatmp3/firatorh/nmt/openmt15/bitext.zh-en/ivocab.en.pkl"
     state['word_indx'] = "/data/lisatmp3/firatorh/nmt/openmt15/bitext.zh-en/vocab.zh.pkl"
