@@ -1687,6 +1687,49 @@ class DoubleRecurrentLayer(Layer):
                 name="R_%s"%self.name)
         self.params.append(self.R_hh)
 
+        self.Wrev_hh = theano.shared(
+                self.init_fn(self.n_hids,
+                self.n_hids,
+                self.sparsity,
+                self.scale,
+                rng=self.rng),
+                name="Wrev_%s"%self.name)
+        self.params += [self.Wrev_hh]
+        self.Grev_hh = theano.shared(
+                self.init_fn(self.n_hids,
+                self.n_hids,
+                self.sparsity,
+                self.scale,
+                rng=self.rng),
+                name="Grev_%s"%self.name)
+        self.params.append(self.Grev_hh)
+        self.Rrev_hh = theano.shared(
+                self.init_fn(self.n_hids,
+                self.n_hids,
+                self.sparsity,
+                self.scale,
+                rng=self.rng),
+                name="Rrev_%s"%self.name)
+        self.params.append(self.Rrev_hh)
+
+        self.Wgg_fwd = theano.shared(
+                self.init_fn(self.n_hids,
+                self.n_hids,
+                self.sparsity,
+                self.scale,
+                rng=self.rng),
+                name="Wgg_fwd_%s"%self.name)
+        self.params += [self.Wgg_fwd]
+
+        self.Wgg_rev = theano.shared(
+                self.init_fn(self.n_hids,
+                self.n_hids,
+                self.sparsity,
+                self.scale,
+                rng=self.rng),
+                name="Wgg_rev_%s"%self.name)
+        self.params += [self.Wgg_rev]
+
         self.W2_hh = theano.shared(
                 self.init_fn(self.n_hids,
                 self.n_hids,
@@ -1772,95 +1815,6 @@ class DoubleRecurrentLayer(Layer):
             self.noise_params_shape_fn = [constant_shape(x.get_value().shape)
                             for x in self.noise_params]
 
-    def _step_fprop(self,
-                   state_below,
-                   mask = None,
-                   state_before = None,
-                   gater_below = None,
-                   reseter_below = None,
-                   use_noise=True,
-                   no_noise_bias = False):
-        """
-        Constructs the computational graph of this layer.
-
-        :type state_below: theano variable
-        :param state_below: the input to the layer
-
-        :type mask: None or theano variable
-        :param mask: mask describing the length of each sequence in a
-            minibatch
-
-        :type state_before: theano variable
-        :param state_before: the previous value of the hidden state of the
-            layer
-
-        :type gater_below: theano variable
-        :param gater_below: the input to the update gate
-
-        :type reseter_below: theano variable
-        :param reseter_below: the input to the reset gate
-
-        :type use_noise: bool
-        :param use_noise: flag saying if weight noise should be used in
-            computing the output of this layer
-
-        :type no_noise_bias: bool
-        :param no_noise_bias: flag saying if weight noise should be added to
-            the bias as well
-        """
-
-        rval = []
-        if self.weight_noise and use_noise and self.noise_params:
-            W_hh = self.W_hh + self.nW_hh
-            G_hh = self.G_hh + self.nG_hh
-            R_hh = self.R_hh + self.nR_hh
-            W2_hh = self.W2_hh + self.nW2_hh
-            G2_hh = self.G2_hh + self.nG2_hh
-            R2_hh = self.R2_hh + self.nR2_hh
-            W_att = self.W_att
-            U_att = self.U_att
-            V_att = self.V_att
-            S_h = self.S_h
-        else:
-            W_hh = self.W_hh
-            G_hh = self.G_hh
-            R_hh = self.R_hh
-            W2_hh = self.W2_hh
-            G2_hh = self.G2_hh
-            R2_hh = self.R2_hh
-            W_att = self.W_att
-            U_att = self.U_att
-            V_att = self.V_att
-            S_h = self.S_h
-
-        # Reset gate:
-        # optionally reset the hidden state.
-        if self.reseting and reseter_below:
-            reseter = self.reseter_activation(TT.dot(state_before, R_hh) +
-                    reseter_below)
-            reseted_state_before = reseter * state_before
-        else:
-            reseted_state_before = state_before
-
-        # Feed the input to obtain potential new state.
-        preactiv = TT.dot(reseted_state_before, W_hh) + state_below
-        h = self.activation(preactiv)
-
-        # Update gate:
-        # optionally reject the potential new state and use the new one.
-        if self.gating and gater_below:
-            gater = self.gater_activation(TT.dot(state_before, G_hh) +
-                    gater_below)
-            h = gater * h + (1-gater) * state_before
-
-        if self.activ_noise and use_noise:
-            h = h + self.trng.normal(h.shape, avg=0, std=self.activ_noise, dtype=h.dtype)
-        if mask is not None:
-            if h.ndim ==2 and mask.ndim==1:
-                mask = mask.dimshuffle(0,'x')
-            h = mask * h + (1-mask) * state_before
-        return h
-
     def fprop(self,
               state_below,
               mask=None,
@@ -1905,25 +1859,31 @@ class DoubleRecurrentLayer(Layer):
             W2_hh = self.W2_hh + self.nW2_hh
             G2_hh = self.G2_hh + self.nG2_hh
             R2_hh = self.R2_hh + self.nR2_hh
-            U2_hh = self.U2_hh
-            V2_hh = self.V2_hh
-            W_att = self.W_att
-            U_att = self.U_att
-            V_att = self.V_att
-            S_h = self.S_h
         else:
             W_hh = self.W_hh
             G_hh = self.G_hh
             R_hh = self.R_hh
             W2_hh = self.W2_hh
-            U2_hh = self.U2_hh
-            V2_hh = self.V2_hh
             G2_hh = self.G2_hh
             R2_hh = self.R2_hh
-            W_att = self.W_att
-            U_att = self.U_att
-            V_att = self.V_att
-            S_h = self.S_h
+
+        Wrev_hh = self.Wrev_hh
+        Grev_hh = self.Grev_hh
+        Rrev_hh = self.Rrev_hh
+
+        Wgg_fwd = self.Wgg_fwd
+        Wgg_rev = self.Wgg_rev
+
+        U2_hh = self.U2_hh
+        V2_hh = self.V2_hh
+        W_att = self.W_att
+        U_att = self.U_att
+        V_att = self.V_att
+        S_h = self.S_h
+        W_att = self.W_att
+        U_att = self.U_att
+        V_att = self.V_att
+        S_h = self.S_h
 
         def _scan1(state_below, mask, state_before, gater_below, reseter_below, 
                    use_noise=True, no_noise_bias = False):
@@ -1947,7 +1907,27 @@ class DoubleRecurrentLayer(Layer):
 
             return h
 
+        def _scan1rev(state_below, mask, state_before, gater_below, reseter_below, 
+                      use_noise=True, no_noise_bias = False):
+            reseter = self.reseter_activation(TT.dot(state_before, Rrev_hh) + reseter_below)
+            reseted_state_before = reseter * state_before
 
+            # Feed the input to obtain potential new state.
+            preactiv = TT.dot(reseted_state_before, Wrev_hh) + state_below
+            h = self.activation(preactiv)
+
+            gater = self.gater_activation(TT.dot(state_before, Grev_hh) + gater_below)
+            h = gater * h + (1-gater) * state_before
+
+            if self.activ_noise and use_noise:
+                h = h + self.trng.normal(h.shape, avg=0, std=self.activ_noise, dtype=h.dtype)
+            
+            if mask is not None:
+                if h.ndim ==2 and mask.ndim==1:
+                    mask = mask.dimshuffle(0,'x')
+                h = mask * h + (1-mask) * state_before
+
+            return h
 
         if mask:
             inps = [state_below, mask, gater_below, reseter_below]
@@ -1968,7 +1948,39 @@ class DoubleRecurrentLayer(Layer):
                         profile=self.profile,
                         truncate_gradient = truncate_gradient,
                         n_steps = nsteps)
-        state_below = rval
+        rval_fwd = rval
+
+        if mask:
+            mask_rev = mask[::-1]
+        else:
+            mask_rev = None
+        state_below_rev = state_below[::-1]
+        gater_below_rev = gater_below[::-1]
+        reseter_below_rev = reseter_below[::-1]
+
+        if mask_rev:
+            inps = [state_below_rev, mask_rev, gater_below_rev, reseter_below_rev]
+            fn = lambda x,y,g,r,z : _scan1rev(x,y,z, gater_below=g, reseter_below=r, 
+                                           use_noise=use_noise,
+                                           no_noise_bias=no_noise_bias)
+        else:
+            inps = [state_below_rev, gater_below_rev, reseter_below_rev]
+            fn = lambda tx, tg,tr, ty: _scan1rev(tx, None, ty, gater_below=tg,
+                                              reseter_below=tr,
+                                              use_noise=use_noise,
+                                              no_noise_bias=no_noise_bias)
+
+        rval, updates_rev = theano.scan(fn,
+                        sequences = inps,
+                        outputs_info = [init_state],
+                        name='layer_%s'%self.name,
+                        profile=self.profile,
+                        truncate_gradient = truncate_gradient,
+                        n_steps = nsteps)
+        updates += updates_rev
+        rval_rev = rval
+
+        state_below = TT.dot(rval_fwd, Wgg_fwd) + TT.dot(rval_rev, Wgg_rev)
         state_below_att = TT.dot(state_below, W_att)
 
         def _scan2(mask, state_before, beta_before,
