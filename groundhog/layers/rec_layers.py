@@ -1978,7 +1978,7 @@ class DoubleRecurrentLayer(Layer):
                         truncate_gradient = truncate_gradient,
                         n_steps = nsteps)
         updates += updates_rev
-        rval_rev = rval
+        rval_rev = rval[::-1]
 
         state_below = TT.dot(rval_fwd, Wgg_fwd) + TT.dot(rval_rev, Wgg_rev)
         state_below_att = TT.dot(state_below, W_att)
