@@ -565,14 +565,18 @@ def prefix_lookup(state, p, s):
 
 class EncoderDecoderBase(object):
 
-    def _create_embedding_layers(self):
+    def _create_embedding_layers(self, enc=False):
         logger.debug("_create_embedding_layers")
+        if enc and self.state['encoder_stack'] < 1:
+            n_hids = [self.state['dim']]
+        else:
+            n_hids=[self.state['rank_n_approx']]
         self.approx_embedder = MultiLayer(
             self.rng,
             n_in=self.state['n_sym_source']
                 if self.prefix.find("enc") >= 0
                 else self.state['n_sym_target'],
-            n_hids=[self.state['rank_n_approx']],
+            n_hids=n_hids,
             activation=[self.state['rank_n_activ']],
             name='{}_approx_embdr'.format(self.prefix),
             **self.default_kwargs)
@@ -586,7 +590,7 @@ class EncoderDecoderBase(object):
         self.update_embedders = [lambda x : 0] * self.num_levels
         embedder_kwargs = dict(self.default_kwargs)
         embedder_kwargs.update(dict(
-            n_in=self.state['rank_n_approx'],
+            n_in=n_hids[0],
             n_hids=[self.state['dim'] * self.state['dim_mult']],
             activation=['lambda x:x']))
         for level in range(self.num_levels):
@@ -681,9 +685,10 @@ class Encoder(EncoderDecoderBase):
             weight_noise=self.state['weight_noise'],
             scale=self.state['weight_scale'])
 
-        self._create_embedding_layers()
-        self._create_transition_layers()
-        self._create_inter_level_layers()
+        self._create_embedding_layers(enc=True)
+        if self.num_levels > 0:
+            self._create_transition_layers()
+            self._create_inter_level_layers()
         self._create_representation_layers()
 
     def _create_representation_layers(self):
@@ -756,24 +761,30 @@ class Encoder(EncoderDecoderBase):
         # Shape in case of matrix input: (max_seq_len, batch_size, dim)
         # Shape in case of vector input: (seq_len, dim)
         hidden_layers = []
-        for level in range(self.num_levels):
-            # Each hidden layer (except the bottom one) receives
-            # input, reset and update signals from below.
-            # All the shapes: (n_words, dim)
-            if level > 0:
-                input_signals[level] += self.inputers[level](hidden_layers[-1])
-                update_signals[level] += self.updaters[level](hidden_layers[-1])
-                reset_signals[level] += self.reseters[level](hidden_layers[-1])
-            hidden_layers.append(self.transitions[level](
-                    input_signals[level],
-                    nsteps=x.shape[0],
-                    batch_size=x.shape[1] if x.ndim == 2 else 1,
-                    mask=x_mask,
-                    gater_below=none_if_zero(update_signals[level]),
-                    reseter_below=none_if_zero(reset_signals[level]),
-                    use_noise=use_noise))
+        if self.num_levels < 1:
+            if x.ndim == 1:
+                hidden_layers = [approx_embeddings.reshape([x.shape[0], self.state['dim']])]
+            else:
+                hidden_layers = [approx_embeddings.reshape([x.shape[0], x.shape[1], self.state['dim']])]
+        else:
+            for level in range(self.num_levels):
+                # Each hidden layer (except the bottom one) receives
+                # input, reset and update signals from below.
+                # All the shapes: (n_words, dim)
+                if level > 0:
+                    input_signals[level] += self.inputers[level](hidden_layers[-1])
+                    update_signals[level] += self.updaters[level](hidden_layers[-1])
+                    reset_signals[level] += self.reseters[level](hidden_layers[-1])
+                hidden_layers.append(self.transitions[level](
+                        input_signals[level],
+                        nsteps=x.shape[0],
+                        batch_size=x.shape[1] if x.ndim == 2 else 1,
+                        mask=x_mask,
+                        gater_below=none_if_zero(update_signals[level]),
+                        reseter_below=none_if_zero(reset_signals[level]),
+                        use_noise=use_noise))
         if return_hidden_layers:
-            assert self.state['encoder_stack'] == 1
+            assert self.state['encoder_stack'] <= 1
             return hidden_layers[0]
 
         # If we no stack of RNN but only a usual one,
@@ -1317,32 +1328,36 @@ class RNNEncoderDecoder(object):
                 use_noise=True,
                 return_hidden_layers=True)
 
-        logger.debug("Create backward encoder")
-        self.backward_encoder = Encoder(self.state, self.rng,
-                prefix="back_enc",
-                skip_init=self.skip_init)
-        self.backward_encoder.create_layers()
+        if self.state['encoder_stack'] > 0:
+            logger.debug("Create backward encoder")
+            self.backward_encoder = Encoder(self.state, self.rng,
+                    prefix="back_enc",
+                    skip_init=self.skip_init)
+            self.backward_encoder.create_layers()
 
-        logger.debug("Build backward encoding computation graph")
-        backward_training_c = self.backward_encoder.build_encoder(
-                self.x[::-1],
-                self.x_mask[::-1],
-                use_noise=True,
-                approx_embeddings=self.encoder.approx_embedder(self.x[::-1]),
-                return_hidden_layers=True)
-        # Reverse time for backward representations.
-        backward_training_c.out = backward_training_c.out[::-1]
+            logger.debug("Build backward encoding computation graph")
+            backward_training_c = self.backward_encoder.build_encoder(
+                    self.x[::-1],
+                    self.x_mask[::-1],
+                    use_noise=True,
+                    approx_embeddings=self.encoder.approx_embedder(self.x[::-1]),
+                    return_hidden_layers=True)
+            # Reverse time for backward representations.
+            backward_training_c.out = backward_training_c.out[::-1]
 
-        if self.state['forward']:
+        if self.state['encoder_stack'] < 1:
             training_c_components.append(forward_training_c)
-        if self.state['last_forward']:
-            training_c_components.append(
-                    ReplicateLayer(self.x.shape[0])(forward_training_c[-1]))
-        if self.state['backward']:
-            training_c_components.append(backward_training_c)
-        if self.state['last_backward']:
-            training_c_components.append(ReplicateLayer(self.x.shape[0])
-                    (backward_training_c[0]))
+        else:
+            if self.state['forward']:
+                training_c_components.append(forward_training_c)
+            if self.state['last_forward']:
+                training_c_components.append(
+                        ReplicateLayer(self.x.shape[0])(forward_training_c[-1]))
+            if self.state['backward']:
+                training_c_components.append(backward_training_c)
+            if self.state['last_backward']:
+                training_c_components.append(ReplicateLayer(self.x.shape[0])
+                        (backward_training_c[0]))
         self.state['c_dim'] = len(training_c_components) * self.state['dim']
 
         logger.debug("Create decoder")
@@ -1365,20 +1380,24 @@ class RNNEncoderDecoder(object):
         self.forward_sampling_c = self.encoder.build_encoder(
                 self.sampling_x,
                 return_hidden_layers=True).out
-        self.backward_sampling_c = self.backward_encoder.build_encoder(
-                self.sampling_x[::-1],
-                approx_embeddings=self.encoder.approx_embedder(self.sampling_x[::-1]),
-                return_hidden_layers=True).out[::-1]
-        if self.state['forward']:
+        if self.state['encoder_stack'] > 0:
+            self.backward_sampling_c = self.backward_encoder.build_encoder(
+                    self.sampling_x[::-1],
+                    approx_embeddings=self.encoder.approx_embedder(self.sampling_x[::-1]),
+                    return_hidden_layers=True).out[::-1]
+        if self.state['encoder_stack'] < 1:
             sampling_c_components.append(self.forward_sampling_c)
-        if self.state['last_forward']:
-            sampling_c_components.append(ReplicateLayer(self.sampling_x.shape[0])
-                    (self.forward_sampling_c[-1]))
-        if self.state['backward']:
-            sampling_c_components.append(self.backward_sampling_c)
-        if self.state['last_backward']:
-            sampling_c_components.append(ReplicateLayer(self.sampling_x.shape[0])
-                    (self.backward_sampling_c[0]))
+        else:
+            if self.state['forward']:
+                sampling_c_components.append(self.forward_sampling_c)
+            if self.state['last_forward']:
+                sampling_c_components.append(ReplicateLayer(self.sampling_x.shape[0])
+                        (self.forward_sampling_c[-1]))
+            if self.state['backward']:
+                sampling_c_components.append(self.backward_sampling_c)
+            if self.state['last_backward']:
+                sampling_c_components.append(ReplicateLayer(self.sampling_x.shape[0])
+                        (self.backward_sampling_c[0]))
 
         self.sampling_c = Concatenate(axis=1)(*sampling_c_components).out
         (self.sample, self.sample_log_prob), self.sampling_updates =\
