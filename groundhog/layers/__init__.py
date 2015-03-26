@@ -1,6 +1,7 @@
 from rec_layers import  \
         LSTMLayer, \
         RecurrentLayer, \
+        DoubleRecurrentLayer, \
         RecurrentMultiLayer, \
         RecurrentMultiLayerInp, \
         RecurrentMultiLayerShortPath, \
