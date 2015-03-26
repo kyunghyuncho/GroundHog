@@ -268,12 +268,12 @@ class MultiLayer(Layer):
             emb_val = TT.dot(
                     self.rank_n_activ(utils.dot(state_below, W_ems[0])),
                     W_ems[1])
-            if b_ems:
+            if b_ems and self.learn_bias:
                 emb_val += b_ems[0]
             st_pos = 1
         else:
             emb_val = utils.dot(state_below, W_ems[0])
-            if b_ems:
+            if b_ems and self.learn_bias:
                 emb_val += b_ems[0]
             st_pos = 0
 
@@ -287,7 +287,7 @@ class MultiLayer(Layer):
                 emb_val = emb_val * self.dropout
         for dx in xrange(1, self.n_layers):
             emb_val = utils.dot(emb_val, W_ems[st_pos+dx])
-            if b_ems:
+            if b_ems and self.learn_bias:
                 emb_val = self.activation[dx](emb_val+ b_ems[dx])
             else:
                 emb_val = self.activation[dx](emb_val)
