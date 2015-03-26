@@ -465,18 +465,20 @@ class RecurrentLayerWithSearch(Layer):
         
         if mask:
             sequences = [state_below, mask, updater_below, reseter_below]
-            non_sequences = [c, c_mask, p_from_c] 
+            non_sequences = [c, c_mask, p_from_c] + self.params
             #              seqs    | out |  non_seqs
-            fn = lambda x, m, g, r,   h,   c1, cm, pc : self.step_fprop(x, h, mask=m,
+            fn = lambda x, m, g, r,   h,   c1, cm, pc, *shared : \
+                    self.step_fprop(x, h, mask=m,
                     gater_below=g, reseter_below=r,
                     c=c1, p_from_c=pc, c_mask=cm,
                     use_noise=use_noise, no_noise_bias=no_noise_bias,
                     return_alignment=return_alignment)
         else:
             sequences = [state_below, updater_below, reseter_below]
-            non_sequences = [c, p_from_c]
+            non_sequences = [c, p_from_c] + self.params
             #            seqs   | out | non_seqs
-            fn = lambda x, g, r,   h,    c1, pc : self.step_fprop(x, h,
+            fn = lambda x, g, r, h, c1, pc, *shared : \
+                    self.step_fprop(x, h,
                     gater_below=g, reseter_below=r,
                     c=c1, p_from_c=pc,
                     use_noise=use_noise, no_noise_bias=no_noise_bias,
@@ -492,6 +494,7 @@ class RecurrentLayerWithSearch(Layer):
                         outputs_info=outputs_info,
                         name='layer_%s'%self.name,
                         truncate_gradient=truncate_gradient,
+                        strict=True,
                         n_steps=nsteps)
         self.out = rval
         self.rval = rval
